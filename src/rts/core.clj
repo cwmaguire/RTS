@@ -3,21 +3,56 @@
   (:import (javax.swing JFrame JPanel JButton SwingUtilities JTextField JComponent)
            (java.awt Dimension BorderLayout Color Rectangle)
            (java.awt.geom Point2D$Float Rectangle2D$Float)
-           (java.awt.event MouseAdapter MouseEvent ActionListener MouseMotionAdapter)))
-
+           (java.awt.event MouseAdapter MouseEvent ActionListener MouseMotionAdapter)
+           (java.util.concurrent Executors TimeUnit)))
 
 (def units (atom []))
-
 (def selected-units (atom []))
-
 (def selection (atom nil))
+(def unit-moves (atom nil))
 
 (def text-field (new JTextField))
 
-(defn write-text [& strs] (.setText text-field (str (.getText text-field) (apply str strs))))
+(defn debug [& strs] (.setText text-field (str (.getText text-field) (apply str strs))))
+
+;read the comments bottom to top
+; I should re-write this to use ->, or even just use more let statements
+(defn translate-n [n-source n-dest dist]
+  (if (= n-source n-dest)
+    n-source
+    (+ n-source ; add the neg. or pos. distance to n1
+      (* ; multiply the min distance by 1 or -1 to handle converging on n2 from any direction
+        (/ ; divide the distance between n-dest and n-source by the abs of itself to get 1 or -1
+          (- n-dest n-source)
+          (abs (- n-dest n-source)))
+        (min ; get the minimum of the distance or 5
+          (abs (- n-dest n-source))
+          dist)))))
+
+(defn move-unit [unit-move]
+  (let [{:keys [unit move] :as unit-move} unit-move
+        shape (:shape @unit)
+        x1 (.getX shape)
+        y1 (.getY shape)
+        h (.getHeight shape)
+        w (.getWidth shape)
+        x2 (:x move)
+        y2 (:y move)]
+    (swap! unit assoc :shape (Rectangle2D$Float. (translate-n x1 x2 5) (translate-n y1 y2 5) w h))
+    ))
+
+(defn do-moves []
+  ;(debug "m!")
+  (doseq [unit-move @unit-moves] (move-unit unit-move))
+
+  ; remove moves that are no longer valid
+  )
+
+(defn unit-selected? [unit]
+  (some #(= % unit) @selected-units))
 
 (defn draw-unit [g2d unit]
-  (let [selected (some #(= % unit) @selected-units) color (if selected Color/RED Color/BLACK)]
+  (let [selected (unit-selected? unit) color (if selected Color/RED Color/BLACK)]
     (.setColor g2d color)
     ;(write-text "Color is" color)
     (.draw g2d (:shape @unit))))
@@ -42,7 +77,7 @@
   (proxy (JPanel) []
     (paintComponent [g2d]
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
-        (write-text "p[" (count units) "s]")
+        ;(debug "p[" (count units) "s]")
         (if units
           (doall (map (fn [unit] (draw-unit g2d unit)) units))
         )
@@ -61,7 +96,9 @@
 (defn select-unit [unit ctrl?]
   (if (not ctrl?)
     (swap! selected-units empty))
-  (swap! selected-units conj unit))
+  (if (unit-selected? unit)
+    (swap! selected-units (partial remove #(= unit %)))
+    (swap! selected-units conj unit)))
 
 (defn create-unit [mouse-event ctrl?]
   (let [new-unit (atom {:shape (Rectangle. (.getX mouse-event) (.getY mouse-event) 10 10)})]
@@ -84,19 +121,28 @@
 
 (defn get-unit [mouse-event]
   (let [p (Point2D$Float. (.getX mouse-event) (.getY mouse-event))]
+    (debug (.getButton mouse-event))
     (first (filter #(. (:shape (deref %)) contains p) @units))))
 
+(defn left-mouse [mouse-event]
+  (if-let [unit (get-unit mouse-event)]
+              (select-unit unit (.isControlDown mouse-event)) ; add check for Ctrl key to add selection instead of replace it
+              (create-unit mouse-event (.isControlDown mouse-event)))
+
+              (swap! selection assoc :start nil :end nil))
+
+(defn right-mouse [mouse-event]
+  (swap! unit-moves concat (map (fn [unit] {:unit unit :move {:x (.getX mouse-event) :y (.getY mouse-event)}}) @selected-units))
+  )
+
 (def mouse-adapter
+  ; switch to reify
   (proxy (MouseAdapter) []
     (mouseClicked [mouse-event]
-      (if-let [unit (get-unit mouse-event)]
-        (select-unit unit (.isControlDown mouse-event)) ; add check for Ctrl key to add selection instead of replace it
-        (create-unit mouse-event (.isControlDown mouse-event)))
-
-      (swap! selection assoc :start nil :end nil)
-
-      ; repaint source instead of needing reference to frame?
-      (.repaint frame))
+      (if (= MouseEvent/BUTTON1 (.getButton mouse-event))
+        (left-mouse mouse-event)
+        (right-mouse mouse-event))
+      )
 
     (mouseReleased [mouse-event]
       (swap! selection assoc :start nil :end nil)
@@ -116,10 +162,12 @@
       (.repaint frame))))
 
 (defn run []
-(SwingUtilities/invokeLater (fn [] (do
-  (.addMouseListener panel mouse-adapter)
-  (.addMouseMotionListener panel mouse-motion-adapter)
-  (doto frame
-    .pack
-    (.setVisible true)
-    (.add panel BorderLayout/CENTER))))))
+  (SwingUtilities/invokeLater (fn [] (do
+    (.addMouseListener panel mouse-adapter)
+    (.addMouseMotionListener panel mouse-motion-adapter)
+    (doto frame
+      .pack
+      (.setVisible true)
+      (.add panel BorderLayout/CENTER)))))
+  (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (do-moves) (.repaint frame)) 100 100 TimeUnit/MILLISECONDS))
+  )
