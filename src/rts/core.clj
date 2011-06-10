@@ -45,7 +45,7 @@
 (defn do-moves []
   ;(debug "doing" (count @unit-moves) "moves")
   (doseq [unit-move @unit-moves] (move-unit unit-move))
-  (swap! unit-moves (fn [xs] []))
+  (swap! unit-moves empty)
   ; remove moves that are no longer valid
   )
 
@@ -136,10 +136,10 @@
 
 (defn left-mouse [mouse-event]
   (if-let [unit (get-unit mouse-event)]
-              (select-unit unit (.isControlDown mouse-event)) ; add check for Ctrl key to add selection instead of replace it
-              (create-unit mouse-event (.isControlDown mouse-event)))
+    (select-unit unit (.isControlDown mouse-event)) ; add check for Ctrl key to add selection instead of replace it
+    (create-unit mouse-event (.isControlDown mouse-event)))
 
-              (swap! selection assoc :start nil :end nil))
+  (swap! selection assoc :start nil :end nil))
 
 (defn right-mouse [mouse-event]
   (swap! unit-moves concat (map (fn [unit] {:unit unit :move {:x (.getX mouse-event) :y (.getY mouse-event)}}) @selected-units))
