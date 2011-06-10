@@ -1,6 +1,6 @@
 (ns rts.core
   (:use [clojure.contrib.math :only [abs]])
-  (:import (javax.swing JFrame JPanel JButton SwingUtilities JTextField JComponent)
+  (:import (javax.swing JFrame JPanel JButton SwingUtilities JTextArea JComponent JScrollPane)
            (java.awt Dimension BorderLayout Color Rectangle)
            (java.awt.geom Point2D$Float Rectangle2D$Float)
            (java.awt.event MouseAdapter MouseEvent ActionListener MouseMotionAdapter)
@@ -11,9 +11,9 @@
 (def selection (atom nil))
 (def unit-moves (atom nil))
 
-(def text-field (new JTextField))
+(def text-area (new JTextArea))
 
-(defn debug [& strs] (.setText text-field (str (.getText text-field) (apply str strs))))
+(defn debug [& strs] (.setText text-area (str (.getText text-area) (apply str strs "\n"))))
 
 ;read the comments bottom to top
 ; I should re-write this to use ->, or even just use more let statements
@@ -38,13 +38,14 @@
         w (.getWidth shape)
         x2 (:x move)
         y2 (:y move)]
+    (debug "Moving unit from [" x1 "," y1 "] to [" x2 "," y2 "]")
     (swap! unit assoc :shape (Rectangle2D$Float. (translate-n x1 x2 5) (translate-n y1 y2 5) w h))
     ))
 
 (defn do-moves []
-  ;(debug "m!")
+  ;(debug "doing" (count @unit-moves) "moves")
   (doseq [unit-move @unit-moves] (move-unit unit-move))
-
+  (swap! unit-moves (fn [xs] []))
   ; remove moves that are no longer valid
   )
 
@@ -73,7 +74,7 @@
         (do (.setColor g2d Color/BLUE)
             (.draw g2d rect))))
 
-(def panel (doto
+(def draw-panel (doto
   (proxy (JPanel) []
     (paintComponent [g2d]
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
@@ -85,13 +86,22 @@
         )))
 
   (.setOpaque true)
-  (.setLayout (new BorderLayout))
-  (.add text-field BorderLayout/NORTH)))
+  (.setLayout (new BorderLayout))))
 
-(def frame (doto (new JFrame)
+(def draw-frame (doto (new JFrame)
   (.setLayout (new BorderLayout))
   (.setPreferredSize (Dimension. 500 500))
   (.setDefaultCloseOperation JFrame/EXIT_ON_CLOSE)))
+
+(def debug-panel
+  (doto (JPanel.)
+    (.setOpaque true)
+    (.setLayout (new BorderLayout))
+    (.add (JScrollPane. text-area) BorderLayout/CENTER)))
+
+(def debug-frame (doto (new JFrame)
+  (.setLayout (new BorderLayout))
+  (.setPreferredSize (Dimension. 500 500))))
 
 (defn select-unit [unit ctrl?]
   (if (not ctrl?)
@@ -146,7 +156,7 @@
 
     (mouseReleased [mouse-event]
       (swap! selection assoc :start nil :end nil)
-      (.repaint frame))))
+      (.repaint draw-frame))))
 
 (def mouse-motion-adapter
   (proxy (MouseMotionAdapter) []
@@ -159,15 +169,20 @@
           (swap! selection assoc :start (Point2D$Float. (.getX mouse-event) (.getY mouse-event)))))
 
       (recalc-selection (.isControlDown mouse-event))
-      (.repaint frame))))
+      (.repaint draw-frame))))
 
 (defn run []
   (SwingUtilities/invokeLater (fn [] (do
-    (.addMouseListener panel mouse-adapter)
-    (.addMouseMotionListener panel mouse-motion-adapter)
-    (doto frame
+    (.addMouseListener draw-panel mouse-adapter)
+    (.addMouseMotionListener draw-panel mouse-motion-adapter)
+    (doto draw-frame
       .pack
       (.setVisible true)
-      (.add panel BorderLayout/CENTER)))))
-  (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (do-moves) (.repaint frame)) 100 100 TimeUnit/MILLISECONDS))
+      (.add draw-panel BorderLayout/CENTER)))
+    (doto debug-frame
+      .pack
+      (.setVisible true)
+      (.add debug-panel BorderLayout/CENTER))))
+    
+    (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (do-moves) (.repaint draw-frame)) 100 100 TimeUnit/MILLISECONDS))
   )
