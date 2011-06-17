@@ -11,9 +11,13 @@
 (def selection (atom nil))
 (def unit-moves (atom nil))
 
+(def square-size 6)
+(def unit-size (* 3 square-size))
+(def draw-grid? true)
+
 (def text-area (new JTextArea))
 
-(defn debug [& strs] (.setText text-area (str (.getText text-area) (apply str strs "\n"))))
+(defn debug [& strs] (.setText text-area (str (.getText text-area) (apply str strs) "\n")))
 
 ;read the comments bottom to top
 ; I should re-write this to use ->, or even just use more let statements
@@ -32,22 +36,24 @@
 (defn move-unit [unit-move]
   (let [{:keys [unit move] :as unit-move} unit-move
         shape (:shape @unit)
-        x1 (.getX shape)
-        y1 (.getY shape)
+        x-orig (.getX shape)
+        y-orig (.getY shape)
         h (.getHeight shape)
         w (.getWidth shape)
-        x2 (:x move)
-        y2 (:y move)]
-    (debug "Moving unit from [" x1 "," y1 "] to [" x2 "," y2 "]")
-    (swap! unit assoc :shape (Rectangle2D$Float. (translate-n x1 x2 5) (translate-n y1 y2 5) w h))
+        x-move (:x move)
+        y-move (:y move)
+        new-shape (Rectangle2D$Float. (translate-n x-orig x-move 5) (translate-n y-orig y-move 5) w h)
+        x-dest (.getX new-shape)
+        y-dest (.getY new-shape)]
+    (debug "Moving unit from [" x-orig "," y-orig "] to [" x-dest "," y-dest "]")
+    (swap! unit assoc :shape new-shape)
+    ; return clipping range to redraw any area where a unit has moved
+    {:x (min x-orig x-dest) :y (min y-orig y-dest) :w (- (max x-orig x-dest) (min x-orig x-dest)) :h (- (max y-orig y-dest) (min y-orig y-dest))}
     ))
 
 (defn do-moves []
-  ;(debug "doing" (count @unit-moves) "moves")
-  (doseq [unit-move @unit-moves] (move-unit unit-move))
-  (swap! unit-moves empty)
-  ; remove moves that are no longer valid
-  )
+  "Run each unit move and return a list of the clip regions to repaint"
+  (map move-unit @unit-moves))
 
 (defn unit-selected? [unit]
   (some #(= % unit) @selected-units))
@@ -74,15 +80,22 @@
         (do (.setColor g2d Color/BLUE)
             (.draw g2d rect))))
 
+(defn draw-grid [panel g2d]
+  (debug "draw grid")
+  ;need to have it draw the grid here so I can see if it's working
+  )
+
 (def draw-panel (doto
   (proxy (JPanel) []
     (paintComponent [g2d]
+      ;(debug "paint")
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
         ;(debug "p[" (count units) "s]")
         (if units
           (doall (map (fn [unit] (draw-unit g2d unit)) units))
         )
         (draw-selection g2d)
+        (if draw-grid? (draw-grid this g2d))
         )))
 
   (.setOpaque true)
@@ -141,8 +154,11 @@
 
   (swap! selection assoc :start nil :end nil))
 
+(defn resolve-to-square [n] (- n (mod n square-size)))
+
 (defn right-mouse [mouse-event]
-  (swap! unit-moves concat (map (fn [unit] {:unit unit :move {:x (.getX mouse-event) :y (.getY mouse-event)}}) @selected-units))
+  ;(debug "resolving: x " (resolve-to-square (.getX mouse-event)) " y " (resolve-to-square (.getY mouse-event)))
+  (swap! unit-moves concat (map (fn [unit] {:unit unit :move {:x (resolve-to-square (.getX mouse-event)) :y (resolve-to-square (.getY mouse-event))}}) @selected-units))
   )
 
 (def mouse-adapter
@@ -171,18 +187,33 @@
       (recalc-selection (.isControlDown mouse-event))
       (.repaint draw-frame))))
 
+;
+; !!! - I don't have any code that intercepts a clipped repaint, so it doesn't do anything to call repaint
+;
+; I need to override the method and re-draw whatever rooms are in the clipping region
+;
+(defn draw-moves []
+  ;(debug "drawing moves")
+  ;(prn "ack")
+  (doseq [{:keys [x y w h]} (do-moves)] (.repaint draw-frame x y w h) (debug "redraw clip [" x "," y "] [" w "," h "]"))
+  ;remove finished moves
+  (swap! unit-moves empty))
+
 (defn run []
   (SwingUtilities/invokeLater (fn [] (do
     (.addMouseListener draw-panel mouse-adapter)
     (.addMouseMotionListener draw-panel mouse-motion-adapter)
     (doto draw-frame
+      (.add draw-panel BorderLayout/CENTER)
       .pack
-      (.setVisible true)
-      (.add draw-panel BorderLayout/CENTER)))
+      (.setVisible true))
     (doto debug-frame
+      (.add debug-panel BorderLayout/CENTER)
       .pack
-      (.setVisible true)
-      (.add debug-panel BorderLayout/CENTER))))
-    
-    (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (do-moves) (.repaint draw-frame)) 100 100 TimeUnit/MILLISECONDS))
+      (.setVisible true)))))
+
+    ; wrapping draw moves in an anonymous function lets me update draw-moves on the fly since the thread holds a reference
+    ; to the anonymous function, not draw-moves
+    ; I'm guessing the anonymous function is a closure and calls the real draw-moves even after I re-def it
+    (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (draw-moves)) 100 100 TimeUnit/MILLISECONDS))
   )
