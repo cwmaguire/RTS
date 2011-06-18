@@ -110,15 +110,14 @@
   (.intersects (:shape @unit) (.getX clip) (.getY clip) (.getWidth clip) (.getHeight clip)))
 
 (defn draw-panel-paint [panel g2d]
-      (debug "draw-panel-paint with clip: " (.getX (.getClip g2d)) " " (.getY (.getClip g2d)) " " (.getWidth (.getClip g2d)) " " (.getHeight (.getClip g2d)))
+      ;(debug "draw-panel-paint with clip: " (.getX (.getClip g2d)) " " (.getY (.getClip g2d)) " " (.getWidth (.getClip g2d)) " " (.getHeight (.getClip g2d)))
 
       (if draw-grid? (draw-grid panel g2d))
-
-      (.draw g2d (Ellipse2D$Float. (.getX (.getClip g2d)) (.getY (.getClip g2d)) 10 10))
 
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
         (if units
           (doall (map (fn [unit] (draw-unit g2d unit)) (filter (partial in-clip? (.getClip g2d)) units))))
+        
         (draw-selection g2d)))
 
 (def draw-panel
@@ -235,9 +234,10 @@
   "takes two selections or four points and returns a rectangle that encompasses both/all of them
    handles an empty new selection (i.e. selection is cancelled)"
   ([sel-old sel-new]
-    (if (:start sel-new)
-      (union-selections (:start sel-new) (:end sel-new) (:start sel-old) (:end sel-old))
-      (xywh sel-old)))
+    (cond
+      (:start sel-new) (union-selections (:start sel-new) (:end sel-new) (:start sel-old) (:end sel-old))
+      (:start sel-old) (xywh sel-old)
+      :default nil))
 
   ([p1 p2 p3 p4]
     (let [[[x1 y1] [x2 y2] [x3 y3] [x4 y4]] (map (fn [p] [(.getX p) (.getY p)]) [p1 p2 p3 p4])
@@ -248,7 +248,7 @@
       [min-x min-y (- max-x min-x) (- max-y min-y)])))
 
 (add-watch selection :key (fn [key ref old-state new-state] (future
-  (debug "selection-watcher: " (.getName (Thread/currentThread)) " " new-state)
+  ;(debug "selection-watcher: " (.getName (Thread/currentThread)) " " new-state)
   (apply #(.repaint draw-panel % %2 (+ 1 %3) (+ 1 %4)) (union-selections old-state new-state)))))
 
 (defn run []
