@@ -2,7 +2,7 @@
   (:use [clojure.contrib.math :only [abs]])
   (:import (javax.swing JFrame JPanel JButton SwingUtilities JTextArea JComponent JScrollPane)
            (java.awt Dimension BorderLayout Color Rectangle)
-           (java.awt.geom Point2D$Float Rectangle2D$Float)
+           (java.awt.geom Point2D$Float Rectangle2D$Float Line2D$Float Ellipse2D$Float)
            (java.awt.event MouseAdapter MouseEvent ActionListener MouseMotionAdapter)
            (java.util.concurrent Executors TimeUnit)))
 
@@ -48,7 +48,7 @@
     (debug "Moving unit from [" x-orig "," y-orig "] to [" x-dest "," y-dest "]")
     (swap! unit assoc :shape new-shape)
     ; return clipping range to redraw any area where a unit has moved
-    {:x (min x-orig x-dest) :y (min y-orig y-dest) :w (- (max x-orig x-dest) (min x-orig x-dest)) :h (- (max y-orig y-dest) (min y-orig y-dest))}
+    {:x (min x-orig x-dest) :y (min y-orig y-dest) :w (+ unit-size (- (max x-orig x-dest) (min x-orig x-dest))) :h (+ unit-size (- (max y-orig y-dest) (min y-orig y-dest)))}
     ))
 
 (defn do-moves []
@@ -81,25 +81,45 @@
             (.draw g2d rect))))
 
 (defn draw-grid [panel g2d]
-  (debug "draw grid")
-  ;need to have it draw the grid here so I can see if it's working
-  )
+  (let [clip (.getClip g2d)
+        x (.getX clip)
+        y (.getY clip)
+        w (.getWidth clip)
+        h (.getHeight clip)
+        max-x (+ x w)
+        max-y (+ y h)
+        prev-x (- x (mod x square-size))
+        next-x (- (+ max-x square-size) (mod (+ max-x square-size) square-size))
+        prev-y (- y (mod y square-size))
+        next-y (- (+ max-y square-size) (mod (+ max-y square-size) square-size))]
+    ; blank it out
+    (.setColor g2d Color/WHITE)
+    (.fill g2d clip)
 
-(def draw-panel (doto
-  (proxy (JPanel) []
-    (paintComponent [g2d]
+    (.setColor g2d Color/GRAY)
+    (doseq [line (map #(Line2D$Float. % %2 % %3) (range prev-x next-x square-size) (repeat y) (repeat max-y))]
+      (.draw g2d line))
+    (doseq [line (map #(Line2D$Float. %2 % %3 %) (range prev-y next-y square-size) (repeat x) (repeat max-x))]
+      (.draw g2d line))))
+
+(defn draw-panel-paint [panel g2d]
+      (debug "draw-panel-paint with clip: " (.getX (.getClip g2d)) " " (.getY (.getClip g2d)) " " (.getWidth (.getClip g2d)) " " (.getHeight (.getClip g2d)))
+      (if draw-grid? (draw-grid panel g2d))
+
+      (.draw g2d (Ellipse2D$Float. (.getX (.getClip g2d)) (.getX (.getClip g2d)) 10 10))
+
       ;(debug "paint")
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
         ;(debug "p[" (count units) "s]")
         (if units
           (doall (map (fn [unit] (draw-unit g2d unit)) units))
         )
-        (draw-selection g2d)
-        (if draw-grid? (draw-grid this g2d))
-        )))
+        (draw-selection g2d)))
 
-  (.setOpaque true)
-  (.setLayout (new BorderLayout))))
+(def draw-panel
+  (doto (proxy (JPanel) [] (paintComponent [g2d] (draw-panel-paint this g2d)))
+    (.setOpaque true)
+    (.setLayout (new BorderLayout))))
 
 (def draw-frame (doto (new JFrame)
   (.setLayout (new BorderLayout))
@@ -124,7 +144,7 @@
     (swap! selected-units conj unit)))
 
 (defn create-unit [mouse-event ctrl?]
-  (let [new-unit (atom {:shape (Rectangle. (.getX mouse-event) (.getY mouse-event) 10 10)})]
+  (let [new-unit (atom {:shape (Rectangle. (.getX mouse-event) (.getY mouse-event) unit-size unit-size)})]
     (swap! units conj new-unit)
     (select-unit new-unit ctrl?)))
 
@@ -161,6 +181,13 @@
   (swap! unit-moves concat (map (fn [unit] {:unit unit :move {:x (resolve-to-square (.getX mouse-event)) :y (resolve-to-square (.getY mouse-event))}}) @selected-units))
   )
 
+(defn xywh
+  ([point-one point-two]
+  (let [x1 (.getX point-one) x2 (.getX point-two) y1 (.getY point-one) y2 (.getY point-two)]
+    [(min x1 x2) (min y1 y2) (- (max x1 x2) (min x1 x2)) (- (max y1 y2) (min y1 y2))]))
+  ([selection]
+    (xywh (:start selection) (:end selection))))
+
 (def mouse-adapter
   ; switch to reify
   (proxy (MouseAdapter) []
@@ -171,8 +198,9 @@
       )
 
     (mouseReleased [mouse-event]
+      (let [old-selection @selection]
       (swap! selection assoc :start nil :end nil)
-      (.repaint draw-frame))))
+      (apply #(.repaint draw-frame % %2 %3 %4) (xywh old-selection))))))
 
 (def mouse-motion-adapter
   (proxy (MouseMotionAdapter) []
@@ -185,7 +213,7 @@
           (swap! selection assoc :start (Point2D$Float. (.getX mouse-event) (.getY mouse-event)))))
 
       (recalc-selection (.isControlDown mouse-event))
-      (.repaint draw-frame))))
+      (.repaint draw-frame (.getX (:start @selection)) (.getY (:start @selection)) (.getX (:end @selection)) (.getY (:end @selection))))))
 
 ;
 ; !!! - I don't have any code that intercepts a clipped repaint, so it doesn't do anything to call repaint
@@ -195,7 +223,7 @@
 (defn draw-moves []
   ;(debug "drawing moves")
   ;(prn "ack")
-  (doseq [{:keys [x y w h]} (do-moves)] (.repaint draw-frame x y w h) (debug "redraw clip [" x "," y "] [" w "," h "]"))
+  (doseq [{:keys [x y w h]} (do-moves)] (debug "redraw clip x: " x " y: " y " w: " w " h: " h)(.repaint draw-panel x y (+ w 1) (+ h 1)) )
   ;remove finished moves
   (swap! unit-moves empty))
 
