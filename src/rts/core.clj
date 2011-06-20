@@ -231,7 +231,7 @@
   (swap! unit-moves empty))
 
 (defn union-selections
-  "takes two selections or four points and returns a rectangle that encompasses both/all of them
+  "takes two selections or four points and returns a rectangle that encompasses both/all of them;
    handles an empty new selection (i.e. selection is cancelled)"
   ([sel-old sel-new]
     (cond
@@ -247,11 +247,37 @@
           max-y (max y1 y2 y3 y4)]
       [min-x min-y (- max-x min-x) (- max-y min-y)])))
 
-(add-watch selection :key (fn [key ref old-state new-state] (future
+(add-watch selection "selection-watch" (fn [key ref old-state new-state] (future
   ;(debug "selection-watcher: " (.getName (Thread/currentThread)) " " new-state)
   (apply #(.repaint draw-panel % %2 (+ 1 %3) (+ 1 %4)) (union-selections old-state new-state)))))
 
-(defn run []
+(defn unique
+  "given two collections, return a set of elements unique to both collections; e.g. [1 2 3][3 4 5] -> [1 2 4 5]"
+  [xs ys]
+  ;could also use the frequencies function to look for elements with more than 1 occurrence
+  (apply disj (set (concat xs ys)) (clojure.set/intersection (set xs) (set ys))))
+
+(defn repaint-draw-panel [x y w h]
+  (.repaint draw-panel x y w h))
+
+(defn unit-ref-shape-xywh
+  "Given unit ref, return the x, y, w, h of the unit's shape"
+  ([unit-ref] (unit-ref-shape-xywh unit-ref 0))
+  ([unit-ref padding] (let [shape (:shape @unit-ref)] [(.getX shape) (.getY shape) (+ padding (.getWidth shape)) (+ padding (.getHeight shape))])))
+
+(defn units-changed
+  "calls repaint for all added and removed units"
+  [key ref old-state new-state]
+    ;(debug "units-changed " key " # rooms " (count new-state) " unique rooms " (count (unique old-state new-state)) " unit xywh " (unit-ref-shape-xywh (first (unique old-state new-state)) 1))
+    (-> (Thread. #(doseq [xywh (map unit-ref-shape-xywh (unique old-state new-state) (repeat 1))] (apply repaint-draw-panel xywh))) (.start)))
+
+(add-watch units ::uw8 units-changed)
+(add-watch selected-units :sel-units-watch units-changed)
+
+(defn run
+  "Creates mouse listeners, debug frame, draw frame; shows frames; schedules
+   move function"
+  []
   (SwingUtilities/invokeLater (fn [] (do
     (.addMouseListener draw-panel mouse-adapter)
     (.addMouseMotionListener draw-panel mouse-motion-adapter)
@@ -268,5 +294,7 @@
     ; wrapping draw moves in an anonymous function lets me update draw-moves on the fly since the thread holds a reference
     ; to the anonymous function, not draw-moves
     ; I'm guessing the anonymous function is a closure and calls the real draw-moves even after I re-def it
+
+    ;; !! switch to do-moves as a watcher can do the drawing
     (-> (Executors/newScheduledThreadPool 1) (.scheduleWithFixedDelay (fn [] (draw-moves)) 100 100 TimeUnit/MILLISECONDS))
   )
