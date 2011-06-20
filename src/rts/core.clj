@@ -23,7 +23,10 @@
 
 ;read the comments bottom to top
 ; I should re-write this to use ->, or even just use more let statements
-(defn translate-n [n-source n-dest dist]
+(defn translate-n
+  "For a pair of x or y start and end points, calculate the point dist pixels closer to the end point, or
+   return the end point if it is closer than 5 pixels away"
+  [n-source n-dest dist]
   (if (= n-source n-dest)
     n-source
     (+ n-source ; add the neg. or pos. distance to n1
@@ -31,11 +34,13 @@
         (/ ; divide the distance between n-dest and n-source by the abs of itself to get 1 or -1
           (- n-dest n-source)
           (abs (- n-dest n-source)))
-        (min ; get the minimum of the distance or 5
+        (min ; get the minimum of the distance between dest and source or dist
           (abs (- n-dest n-source))
           dist)))))
 
-(defn move-unit [unit-move]
+(defn move-unit
+  "Work in progress. Move a unit. "
+  [unit-move]
   (let [{:keys [unit move] :as unit-move} unit-move
         shape (:shape @unit)
         x-orig (.getX shape)
@@ -60,15 +65,21 @@
   "Run each unit move and return a list of the clip regions to repaint"
   (map move-unit @unit-moves))
 
-(defn unit-selected? [unit]
+(defn unit-selected?
+  "Check if a unit is in the selected units collection"
+  [unit]
   (some #(= % unit) @selected-units))
 
-(defn draw-unit [g2d unit]
+(defn draw-unit
+  "Draw a unit on the draw panel"
+  [g2d unit]
   (let [selected (unit-selected? unit) color (if selected Color/RED Color/BLACK)]
     (.setColor g2d color)
     (.draw g2d (:shape @unit))))
 
-(defn selection-rectangle []
+(defn selection-rectangle
+  "Given two, create a rectangle the encompasses both points. (Might be a dupe of xywh)"
+  []
   (let [{:keys [start end]} @selection]
     (if (and start end)
       (let [start-x (.getX start)
@@ -78,12 +89,16 @@
         (Rectangle2D$Float. (min start-x end-x) (min start-y end-y) (abs (- start-x end-x)) (abs (- start-y end-y)))
         ))))
 
-(defn draw-selection [g2d]
+(defn draw-selection
+  "Draw a selection rectangle"
+  [g2d]
     (if-let [rect (selection-rectangle)]
         (do (.setColor g2d Color/BLUE)
             (.draw g2d rect))))
 
-(defn draw-grid [panel g2d]
+(defn draw-grid
+  "Draw a grid on the draw-panel; this is for working on path finding and would be in the final version"
+  [panel g2d]
   (let [clip (.getClip g2d)
         x (.getX clip)
         y (.getY clip)
@@ -106,12 +121,14 @@
     (doseq [line (map #(Line2D$Float. %2 % %3 %) (range prev-y next-y square-size) (repeat x) (repeat max-x))]
       (.draw g2d line))))
 
-(defn in-clip? [clip unit]
+(defn in-clip?
+  "Returns if a unit is in a clipping region shape. (Might be dupe of sel-contains-unit?)"
+  [clip unit]
   (.intersects (:shape @unit) (.getX clip) (.getY clip) (.getWidth clip) (.getHeight clip)))
 
-(defn draw-panel-paint [panel g2d]
-      ;(debug "draw-panel-paint with clip: " (.getX (.getClip g2d)) " " (.getY (.getClip g2d)) " " (.getWidth (.getClip g2d)) " " (.getHeight (.getClip g2d)))
-
+(defn draw-panel-paint
+  "Function to repaint the dirty regions of the draw panel"
+  [panel g2d]
       (if draw-grid? (draw-grid panel g2d))
 
       (let [units @units selection @selection sel-start (:start selection) sel-end (:end selection)]
@@ -140,33 +157,42 @@
   (.setLayout (new BorderLayout))
   (.setPreferredSize (Dimension. 500 500))))
 
-(defn select-unit [unit ctrl?]
+(defn select-unit
+  "Create a new selection with this unit or add it to the existing selection based on the Ctrl key flag"
+  [unit ctrl?]
   (if (not ctrl?)
     (swap! selected-units empty))
   (if (unit-selected? unit)
     (swap! selected-units (partial remove #(= unit %)))
     (swap! selected-units conj unit)))
 
-(defn create-unit [mouse-event ctrl?]
+(defn create-unit
+  "Given a mouse event and a ctrl flag (for the Ctrl keyboard key), create a new room and either select it or add it
+   to the existing room selections"
+  [mouse-event ctrl?]
   (let [new-unit (atom {:shape (Rectangle2D$Float. (.getX mouse-event) (.getY mouse-event) unit-size unit-size)})]
     (swap! units conj new-unit)
     (select-unit new-unit ctrl?)))
 
-(defn sel-contains-unit [sel-rect unit]
+(defn sel-contains-unit? [sel-rect unit]
   (let [unit-rect (.getBounds2D (:shape @unit))]
     (.contains sel-rect unit-rect)))
 
-(defn recalc-selection [ctrl?]
+(defn recalc-selection
+  "Update the collection of selected units when the selection box is changed"
+  [ctrl?]
   ; check for Ctrl before clearing selection
   (let [units @units sel-rect (selection-rectangle)]
     (if sel-rect
       (do
         (if (not ctrl?)
           (swap! selected-units empty))
-        (swap! selected-units concat (filter (partial sel-contains-unit (selection-rectangle)) units))))))
+        (swap! selected-units concat (filter (partial sel-contains-unit? (selection-rectangle)) units))))))
 
 
-(defn get-unit [mouse-event]
+(defn get-unit
+  "Given a mouse event, return any unit at the mouse event x,y"
+  [mouse-event]
   (let [p (Point2D$Float. (.getX mouse-event) (.getY mouse-event))]
     (debug (.getButton mouse-event))
     (first (filter #(. (:shape (deref %)) contains p) @units))))
@@ -178,6 +204,7 @@
 
   (swap! selection assoc :start nil :end nil))
 
+; !! FIX ME - doesn't line up to grid
 (defn resolve-to-square
   "Supposed to take a number and return it adjusted to align with a multiple of square-size (i.e. to align with a grid). Doesn't work well."
   [n] (- n (mod n square-size)))
@@ -210,7 +237,9 @@
     (mouseReleased [mouse-event] (mouse-released mouse-event))))
 
 
-(defn mouse-dragged [mouse-event] (
+(defn mouse-dragged
+  "Handles updating room selections on mouse drag"
+  [mouse-event] (
     ; store the end of the selection
     (swap! selection assoc :end (Point2D$Float. (.getX mouse-event) (.getY mouse-event)))
 
@@ -224,7 +253,10 @@
 (def mouse-motion-adapter
   (proxy [MouseMotionAdapter] [] (mouseDragged [mouse-event] (mouse-dragged mouse-event))))
 
-(defn draw-moves []
+; !! use a watch to do the repainting
+(defn draw-moves
+  "Performs all moves and then repaints resulting clips"
+  []
   (doseq [{:keys [x y w h]} (do-moves)] (debug "redraw clip x: " x " y: " y " w: " w " h: " h)(.repaint draw-panel x y (+ w 1) (+ h 1)) )
 
   ;!! remove finished moves
@@ -247,9 +279,8 @@
           max-y (max y1 y2 y3 y4)]
       [min-x min-y (- max-x min-x) (- max-y min-y)])))
 
-(add-watch selection "selection-watch" (fn [key ref old-state new-state] (future
-  ;(debug "selection-watcher: " (.getName (Thread/currentThread)) " " new-state)
-  (apply #(.repaint draw-panel % %2 (+ 1 %3) (+ 1 %4)) (union-selections old-state new-state)))))
+; not sure why this works even though we're not deref'ing the future
+(add-watch selection "selection-watch" (fn [key ref old-state new-state] (future (apply #(.repaint draw-panel % %2 (+ 1 %3) (+ 1 %4)) (union-selections old-state new-state)))))
 
 (defn unique
   "given two collections, return a set of elements unique to both collections; e.g. [1 2 3][3 4 5] -> [1 2 4 5]"
@@ -257,7 +288,9 @@
   ;could also use the frequencies function to look for elements with more than 1 occurrence
   (apply disj (set (concat xs ys)) (clojure.set/intersection (set xs) (set ys))))
 
-(defn repaint-draw-panel [x y w h]
+(defn repaint-draw-panel
+  "Wrapper function for .repaint to allow (apply) to be used"
+  [x y w h]
   (.repaint draw-panel x y w h))
 
 (defn unit-ref-shape-xywh
@@ -266,13 +299,12 @@
   ([unit-ref padding] (let [shape (:shape @unit-ref)] [(.getX shape) (.getY shape) (+ padding (.getWidth shape)) (+ padding (.getHeight shape))])))
 
 (defn units-changed
-  "calls repaint for all added and removed units"
+  "calls repaint for units that are added to or removed from the reference (e.g. selected units, all units)"
   [key ref old-state new-state]
-    ;(debug "units-changed " key " # rooms " (count new-state) " unique rooms " (count (unique old-state new-state)) " unit xywh " (unit-ref-shape-xywh (first (unique old-state new-state)) 1))
     (-> (Thread. #(doseq [xywh (map unit-ref-shape-xywh (unique old-state new-state) (repeat 1))] (apply repaint-draw-panel xywh))) (.start)))
 
-(add-watch units ::uw8 units-changed)
-(add-watch selected-units :sel-units-watch units-changed)
+(add-watch units ::units-watch units-changed)
+(add-watch selected-units :selected-units-watch units-changed)
 
 (defn run
   "Creates mouse listeners, debug frame, draw frame; shows frames; schedules
