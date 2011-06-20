@@ -49,7 +49,7 @@
         w (.getWidth shape)
         x-move (:x move)
         y-move (:y move)
-        new-shape (Rectangle2D$Float. (translate-n x-orig x-move 5) (translate-n y-orig y-move 5) w h)
+        new-shape (Rectangle2D$Float. (translate-n x-orig x-move square-size) (translate-n y-orig y-move square-size) w h)
         x-dest (.getX new-shape)
         y-dest (.getY new-shape)]
     (debug "Moving unit from [" x-orig "," y-orig "] to [" x-dest "," y-dest "]")
@@ -166,11 +166,16 @@
     (swap! selected-units (partial remove #(= unit %)))
     (swap! selected-units conj unit)))
 
+(defn resolve-to-square
+  "Supposed to take a number and return it adjusted to align with a multiple of square-size (i.e. to align with a grid). Doesn't work well."
+  [n]
+  (- n (mod n square-size)))
+
 (defn create-unit
   "Given a mouse event and a ctrl flag (for the Ctrl keyboard key), create a new room and either select it or add it
    to the existing room selections"
   [mouse-event ctrl?]
-  (let [new-unit (atom {:shape (Rectangle2D$Float. (.getX mouse-event) (.getY mouse-event) unit-size unit-size)})]
+  (let [new-unit (atom {:shape (Rectangle2D$Float. (resolve-to-square (.getX mouse-event)) (resolve-to-square (.getY mouse-event)) unit-size unit-size)})]
     (swap! units conj new-unit)
     (select-unit new-unit ctrl?)))
 
@@ -203,11 +208,6 @@
     (create-unit mouse-event (.isControlDown mouse-event)))
 
   (swap! selection assoc :start nil :end nil))
-
-; !! FIX ME - doesn't line up to grid
-(defn resolve-to-square
-  "Supposed to take a number and return it adjusted to align with a multiple of square-size (i.e. to align with a grid). Doesn't work well."
-  [n] (- n (mod n square-size)))
 
 (defn right-mouse [mouse-event]
   ;(debug "resolving: x " (resolve-to-square (.getX mouse-event)) " y " (resolve-to-square (.getY mouse-event)))
