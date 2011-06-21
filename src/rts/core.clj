@@ -92,7 +92,7 @@
     (and (pos? dx) (neg? dy)) deg
     (and (zero? dx) (pos? dy)) 270
     (and (zero? dx) (neg? dy)) 90
-    (and (neg? dx) (pos? dy)) (+ 180 deg)()
+    (and (neg? dx) (pos? dy)) (+ 180 deg)
     (and (neg? dx) (zero? dy)) 180
     (and (neg? dx) (neg? dy)) (+ 90 deg)))
 
@@ -103,7 +103,7 @@
   (let [dx (- x2 x1)
         dy (- y2 y1)
         arc (direction-arc (circle-degree dx dy (move-angle dx dy)))]
-    [(x-arc-delta arc) (y-arc-delta arc)]))
+    [(* square-size (x-arc-delta arc)) (* square-size (y-arc-delta arc))]))
 
 (defn move-unit
   "Work in progress. Move a unit. "
@@ -116,7 +116,8 @@
         w (.getWidth shape)
         x-move (:x move)
         y-move (:y move)
-        new-shape (Rectangle2D$Float. (translate-n x-orig x-move square-size) (translate-n y-orig y-move square-size) w h)
+        [dx dy] (xy-delta x-orig y-orig x-move y-move)
+        new-shape (Rectangle2D$Float. (+ x-orig dx) (+ y-orig dy) w h)
         x-dest (.getX new-shape)
         y-dest (.getY new-shape)]
     (debug "Moving unit from [" x-orig "," y-orig "] to [" x-dest "," y-dest "]")
